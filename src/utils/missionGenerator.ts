@@ -85,6 +85,14 @@ const objectiveTemplates: Record<ObjectiveType, (state: GameState) => { target: 
     target: 1,
     description: 'Successfully hack a server with minimum security level {target}'
   }),
+  secure_network: (state) => ({
+    target: 1,
+    description: 'Secure the network with encryption level {target}'
+  }),
+  decrypt_file: (state) => ({
+    target: 1,
+    description: 'Decrypt secured file of level {target}'
+  }),
   run_command: (state) => ({
     target: 1,
     description: 'Execute command with parameter {target}'
@@ -128,6 +136,23 @@ const objectiveTemplates: Record<ObjectiveType, (state: GameState) => { target: 
   analyze_code: (state) => ({
     target: 1,
     description: 'Analyze code segments to find vulnerabilities with threshold {target}'
+  }),
+  // Add aliases for compatibility with mission data
+  hack: () => ({
+    target: 1,
+    description: 'Hack into a system with difficulty level {target}'
+  }),
+  collect: (state) => ({
+    target: Math.floor((state.dataPerSecond * 1800) * (1 + Math.random())),
+    description: 'Collect {target} resources'
+  }),
+  defend: (state) => ({
+    target: 1, 
+    description: 'Defend against {target} security threats'
+  }),
+  analyze: (state) => ({
+    target: 1,
+    description: 'Analyze {target} data samples'
   })
 };
 
@@ -170,6 +195,9 @@ export function generateMission(
   // Generate mission name and description
   const { name, description } = generateMissionNameAndDescription(type, difficulty, objectives);
 
+  // Get numeric value for difficulty
+  const difficultyValue = rewardScaling[difficulty];
+
   return {
     id,
     name,
@@ -184,7 +212,11 @@ export function generateMission(
           Math.random() * (template.timeLimit.max - template.timeLimit.min + 1)
         ) + template.timeLimit.min
       : undefined,
-    unlockConditions: generateUnlockConditions(state, difficulty)
+    unlockConditions: generateUnlockConditions(state, difficulty),
+    requirements: {
+      playerLevel: Math.max(1, Math.floor(difficultyValue / 2)),
+      hackingSkill: Math.max(5, difficultyValue * 5)
+    }
   };
 }
 

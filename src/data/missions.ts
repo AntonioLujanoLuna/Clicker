@@ -3,20 +3,26 @@ import { Server, NetworkAttack } from '../contexts/GameContext';
 // New mission types and objective types
 export type MissionType = 'story' | 'side' | 'daily' | 'event' | 'challenge' | 'chain' | 'special';
 export type ObjectiveType = 
-  | 'collect_data' 
-  | 'mine_crypto' 
-  | 'hack_server' 
-  | 'run_command' 
-  | 'resolve_attack' 
-  | 'upgrade_purchase' 
+  | 'collect_data'
+  | 'mine_crypto'
+  | 'hack_server'
+  | 'secure_network'
+  | 'analyze_code'
+  | 'decrypt_file'
+  | 'run_command'
+  | 'resolve_attack'
+  | 'upgrade_purchase'
   | 'achieve_processing'
   | 'defend_network'
   | 'decrypt_data'
-  | 'solve_puzzle'
   | 'complete_minigame'
-  | 'maintain_uptime'
   | 'chain_attacks'
-  | 'analyze_code';
+  | 'hack' 
+  | 'collect' 
+  | 'defend' 
+  | 'analyze'
+  | 'solve_puzzle'
+  | 'maintain_uptime';
 
 export type RewardType = 
   | 'data' 
@@ -29,7 +35,9 @@ export type RewardType =
   | 'skill_tree_point'
   | 'rare_resource'
   | 'blueprint'
-  | 'network_influence';
+  | 'network_influence'
+  | 'experience'
+  | 'credits';
 
 // Mission difficulty levels
 export type DifficultyLevel = 'tutorial' | 'easy' | 'medium' | 'hard' | 'expert' | 'legendary';
@@ -37,51 +45,60 @@ export type DifficultyLevel = 'tutorial' | 'easy' | 'medium' | 'hard' | 'expert'
 // Enhanced Mission interface
 export interface Mission {
   id: string;
-  title: string;
+  name: string;
   description: string;
-  difficulty: 'easy' | 'medium' | 'hard' | 'expert';
-  timeLimit: number; // in seconds
+  type: MissionType;
+  difficulty: DifficultyLevel;
+  status: 'available' | 'active' | 'in_progress' | 'completed' | 'failed';
+  timeLimit?: number; // in seconds
   objectives: MissionObjective[];
-  rewards: MissionReward;
+  rewards: MissionReward[];
   requirements: MissionRequirement;
-  story: string[];
+  story?: string[];
+  unlockConditions?: any; // This should be properly typed based on the output of generateUnlockConditions
 }
 
 // Enhanced MissionObjective interface
 export interface MissionObjective {
   id: string;
   description: string;
-  type: 'hack' | 'collect' | 'defend' | 'analyze';
-  target: number;
+  type: ObjectiveType;
+  target: number | string;
   progress: number;
   completed: boolean;
+  optional?: boolean;
+  bonusReward?: MissionReward;
+  timeLimit?: number; // Time limit in milliseconds
 }
 
 // Enhanced MissionReward interface
 export interface MissionReward {
-  credits: number;
-  data: number;
-  experience: number;
-  specialItem?: {
-    id: string;
-    name: string;
-    description: string;
+  type: RewardType;
+  amount: number;
+  description: string;
+  rarity?: 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+  scaling?: {
+    withDifficulty: boolean;
+    withPerfection: boolean;
   };
 }
 
 // Enhanced MissionRequirement interface
 export interface MissionRequirement {
-  playerLevel: number;
-  hackingSkill: number;
+  playerLevel?: number;
+  hackingSkill?: number;
   requiredItems?: string[];
+  // Add other requirements as needed
 }
 
 export const initialMissions: Mission[] = [
   {
     id: 'M001',
-    title: 'Digital Footprints',
+    name: 'Digital Footprints',
     description: 'Trace and collect scattered data packets from a compromised server.',
+    type: 'story',
     difficulty: 'easy',
+    status: 'available',
     timeLimit: 300,
     objectives: [
       {
@@ -101,11 +118,18 @@ export const initialMissions: Mission[] = [
         completed: false
       }
     ],
-    rewards: {
-      credits: 5000,
-      data: 2000,
-      experience: 1000
-    },
+    rewards: [
+      {
+        type: 'data',
+        amount: 2000,
+        description: 'Data packets from the compromised server'
+      },
+      {
+        type: 'experience',
+        amount: 1000,
+        description: 'Experience points from the mission'
+      }
+    ],
     requirements: {
       playerLevel: 1,
       hackingSkill: 5
@@ -119,9 +143,11 @@ export const initialMissions: Mission[] = [
   },
   {
     id: 'M002',
-    title: 'Firewall Breach',
+    name: 'Firewall Breach',
     description: 'Infiltrate a corporate network by bypassing their advanced firewall system.',
+    type: 'story',
     difficulty: 'medium',
+    status: 'available',
     timeLimit: 600,
     objectives: [
       {
@@ -149,16 +175,29 @@ export const initialMissions: Mission[] = [
         completed: false
       }
     ],
-    rewards: {
-      credits: 10000,
-      data: 5000,
-      experience: 2500,
-      specialItem: {
-        id: 'ITEM001',
-        name: 'Advanced Encryption Bypass',
-        description: 'A specialized tool for bypassing high-level encryption'
+    rewards: [
+      {
+        type: 'credits',
+        amount: 10000,
+        description: 'Credits from the mission'
+      },
+      {
+        type: 'data',
+        amount: 5000,
+        description: 'Data from the mission'
+      },
+      {
+        type: 'experience',
+        amount: 2500,
+        description: 'Experience points from the mission'
+      },
+      {
+        type: 'special_upgrade',
+        amount: 1,
+        description: 'Advanced Encryption Bypass',
+        rarity: 'epic'
       }
-    },
+    ],
     requirements: {
       playerLevel: 5,
       hackingSkill: 15,
@@ -174,9 +213,11 @@ export const initialMissions: Mission[] = [
   },
   {
     id: 'M003',
-    title: 'Corporate Mainframe Breach',
+    name: 'Corporate Mainframe Breach',
     description: 'Infiltrate the heavily guarded corporate mainframe while avoiding detection.',
+    type: 'story',
     difficulty: 'hard',
+    status: 'available',
     timeLimit: 1800,
     objectives: [
       {
@@ -212,16 +253,29 @@ export const initialMissions: Mission[] = [
         completed: false
       }
     ],
-    rewards: {
-      credits: 20000,
-      data: 10000,
-      experience: 5000,
-      specialItem: {
-        id: 'ITEM002',
-        name: 'Corporate Mainframe Access',
-        description: 'Access to the heavily guarded corporate mainframe'
+    rewards: [
+      {
+        type: 'credits',
+        amount: 20000,
+        description: 'Credits from the mission'
+      },
+      {
+        type: 'data',
+        amount: 10000,
+        description: 'Data from the mission'
+      },
+      {
+        type: 'experience',
+        amount: 5000,
+        description: 'Experience points from the mission'
+      },
+      {
+        type: 'special_upgrade',
+        amount: 1,
+        description: 'Corporate Mainframe Access',
+        rarity: 'legendary'
       }
-    },
+    ],
     requirements: {
       playerLevel: 10,
       hackingSkill: 20
@@ -241,9 +295,11 @@ export const enhancedMissions: Mission[] = [
   ...initialMissions,
   {
     id: 'corporate_mainframe_breach',
-    title: 'Corporate Mainframe Breach',
+    name: 'Corporate Mainframe Breach',
     description: 'Infiltrate the heavily guarded corporate mainframe while avoiding detection.',
+    type: 'story',
     difficulty: 'hard',
+    status: 'available',
     timeLimit: 1800, // 30 minutes in seconds
     objectives: [
       {
@@ -286,16 +342,29 @@ export const enhancedMissions: Mission[] = [
         completed: false
       }
     ],
-    rewards: {
-      credits: 20000,
-      data: 10000,
-      experience: 5000,
-      specialItem: {
-        id: 'ITEM002',
-        name: 'Corporate Mainframe Access',
-        description: 'Access to the heavily guarded corporate mainframe'
+    rewards: [
+      {
+        type: 'credits',
+        amount: 20000,
+        description: 'Credits from the mission'
+      },
+      {
+        type: 'data',
+        amount: 10000,
+        description: 'Data from the mission'
+      },
+      {
+        type: 'experience',
+        amount: 5000,
+        description: 'Experience points from the mission'
+      },
+      {
+        type: 'special_upgrade',
+        amount: 1,
+        description: 'Corporate Mainframe Access',
+        rarity: 'legendary'
       }
-    },
+    ],
     requirements: {
       playerLevel: 10,
       hackingSkill: 20

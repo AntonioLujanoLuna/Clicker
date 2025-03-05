@@ -57,7 +57,13 @@ function missionReducer(state: MissionState, action: MissionAction): MissionStat
         ...state.activeMission,
         objectives: state.activeMission.objectives.map(obj =>
           obj.id === action.payload.objectiveId
-            ? { ...obj, progress: action.payload.progress, completed: action.payload.progress >= obj.target }
+            ? { 
+                ...obj, 
+                progress: action.payload.progress, 
+                completed: typeof obj.target === 'number' 
+                  ? action.payload.progress >= obj.target 
+                  : action.payload.progress >= Number(obj.target) 
+              }
             : obj
         ),
       };
@@ -107,8 +113,8 @@ export function MissionProvider({ children }: { children: React.ReactNode }) {
 
     // Check requirements
     if (
-      gameState.prestigeLevel < mission.requirements.playerLevel ||
-      gameState.hackingSkill < mission.requirements.hackingSkill
+      (mission.requirements.playerLevel !== undefined && gameState.prestigeLevel < mission.requirements.playerLevel) ||
+      (mission.requirements.hackingSkill !== undefined && gameState.hackingSkill < mission.requirements.hackingSkill)
     ) {
       console.log('Requirements not met');
       return;

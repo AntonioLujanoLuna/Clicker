@@ -100,6 +100,14 @@ export function MissionPanel() {
   };
 
   const checkRequirements = (mission: any) => {
+    // If mission.requirements is undefined, return default values
+    if (!mission.requirements) {
+      return {
+        playerLevel: true,
+        hackingSkill: true,
+      };
+    }
+    
     return {
       playerLevel: gameState.prestigeLevel >= mission.requirements.playerLevel,
       hackingSkill: gameState.hackingSkill >= mission.requirements.hackingSkill,
@@ -121,21 +129,21 @@ export function MissionPanel() {
               isActive={isActive}
               onClick={() => handleStartMission(mission.id)}
             >
-              <MissionTitle>{mission.title}</MissionTitle>
+              <MissionTitle>{mission.name}</MissionTitle>
               <MissionDescription>{mission.description}</MissionDescription>
               
               <MissionDetails>
                 <div>
                   <RequirementText isMet={requirements.playerLevel}>
-                    Level {mission.requirements.playerLevel}
+                    Level {mission.requirements?.playerLevel || 0}
                   </RequirementText>
                   {' | '}
                   <RequirementText isMet={requirements.hackingSkill}>
-                    Hacking {mission.requirements.hackingSkill}
+                    Hacking {mission.requirements?.hackingSkill || 0}
                   </RequirementText>
                 </div>
                 <div>
-                  Rewards: {mission.rewards.data} data | {mission.rewards.experience} XP
+                  Rewards: {mission.rewards.find(r => r.type === 'data')?.amount || 0} data | {mission.rewards.find(r => r.type === 'experience')?.amount || 0} XP
                 </div>
               </MissionDetails>
 
