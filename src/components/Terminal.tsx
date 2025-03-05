@@ -294,6 +294,211 @@ const Terminal: React.FC<TerminalProps> = ({
       case 'critical':
         displayCriticalStats();
         break;
+      case 'server':
+      case 'servers':
+        if (args.length === 0) {
+          return {
+            type: 'info',
+            message: [
+              'Server Management Commands:',
+              '-------------------------',
+              'servers list - Show available servers',
+              'servers status - Show current server status',
+              'servers connect [server_id] - Connect to server',
+              'servers scan - Scan for new servers',
+              'servers secure - Reduce security level of current server'
+            ]
+          };
+        }
+        
+        switch (args[0]) {
+          case 'list':
+            const serversList = state.servers
+              .filter(server => server.isUnlocked)
+              .map(server => `${server.id === state.currentServerId ? '>' : ' '} ${server.name} (${server.icon}) - Security: ${Math.floor(server.securityLevel)}/${server.maxSecurityLevel}`);
+            
+            const hiddenServers = state.servers.filter(server => !server.isUnlocked).length;
+            
+            return {
+              type: 'info',
+              message: [
+                'Available Servers:',
+                '----------------',
+                ...serversList,
+                hiddenServers > 0 ? `\n${hiddenServers} undiscovered servers remaining` : '\nAll servers discovered'
+              ]
+            };
+            
+          case 'status':
+            const currentServer = state.servers.find(server => server.id === state.currentServerId);
+            if (!currentServer) return { type: 'error', message: ['Server not found'] };
+            
+            const efficiency = Math.round(Math.max(0.5, 1 - (currentServer.securityLevel / currentServer.maxSecurityLevel) * 0.5) * 100);
+            
+            return {
+              type: 'info',
+              message: [
+                `Current Server: ${currentServer.name} (${currentServer.icon})`,
+                `Description: ${currentServer.description}`,
+                `Security Level: ${Math.floor(currentServer.securityLevel)}/${currentServer.maxSecurityLevel}`,
+                `Efficiency: ${efficiency}%`,
+                `Resource Multipliers:`,
+                ` - Data: x${currentServer.resourceMultipliers.data.toFixed(1)}`,
+                ` - Crypto: x${currentServer.resourceMultipliers.crypto.toFixed(1)}`,
+                ` - Processing: x${currentServer.resourceMultipliers.processingPower.toFixed(1)}`
+              ]
+            };
+            
+          case 'connect':
+            if (args.length < 2) {
+              return { type: 'error', message: ['Please specify a server ID'] };
+            }
+            
+            const targetServer = state.servers.find(server => server.id === args[1]);
+            
+            if (!targetServer) {
+              return { type: 'error', message: [`Server '${args[1]}' not found`] };
+            }
+            
+            if (!targetServer.isUnlocked) {
+              return { type: 'error', message: [`Server '${targetServer.name}' not accessible. Discover it first.`] };
+            }
+            
+            if (targetServer.id === state.currentServerId) {
+              return { type: 'info', message: [`Already connected to ${targetServer.name}`] };
+            }
+            
+            dispatch({ type: 'SWITCH_SERVER', payload: { serverId: targetServer.id } });
+            
+            return {
+              type: 'success',
+              message: [
+                `Connected to ${targetServer.name}`,
+                `Security Level: ${Math.floor(targetServer.securityLevel)}/${targetServer.maxSecurityLevel}`,
+                `Resource multipliers activated: Data x${targetServer.resourceMultipliers.data.toFixed(1)}, Crypto x${targetServer.resourceMultipliers.crypto.toFixed(1)}`
+              ]
+            };
+            
+          case 'scan':
+            // Check if scan is on cooldown
+            if (Date.now() < state.lastHackTime + state.hackCooldown) {
+              const remainingCooldown = Math.ceil((state.lastHackTime + state.hackCooldown - Date.now()) / 1000);
+              return { type: 'error', message: [`Scanner cooling down. Try again in ${remainingCooldown} seconds.`] };
+            }
+            
+            // Find potential servers that meet requirements but aren't discovered yet
+            const discoverableServers = state.servers.filter(server => 
+              !server.isUnlocked && 
+              (!server.unlocksAt.hackingSkill || state.hackingSkill >= server.unlocksAt.hackingSkill) &&
+              (!server.unlocksAt.data || state.data >= server.unlocksAt.data) &&
+              (!server.unlocksAt.crypto || state.crypto >= server.unlocksAt.crypto)
+            );
+            
+            if (discoverableServers.length === 0) {
+              return { type: 'info', message: ['No new servers detected with current capabilities.'] };
+            }
+            
+            // Calculate discovery chance based on hacking skill and server discovery chance
+            const scanPower = state.hackingSkill + 5; // Base scan power
+            const discoveryChances = discoverableServers.map(server => ({
+              server,
+              chance: Math.min(server.discoveryChance * (1 + scanPower / 20), 80) // Cap at 80%
+            }));
+            
+            // Try to discover a server
+            let discovered = false;
+            let discoveredServer = null;
+            
+            for (const { server, chance } of discoveryChances) {
+              if (Math.random() * 100 < chance) {
+                discovered = true;
+                discoveredServer = server;
+                dispatch({ type: 'DISCOVER_SERVER', payload: { serverId: server.id } });
+                break;
+              }
+            }
+            
+            // Update hack cooldown
+            dispatch({ 
+              type: 'MANUAL_HACK', 
+              payload: { target: 'scan' } 
+            });
+            
+            if (discovered && discoveredServer) {
+              return {
+                type: 'success',
+                message: [
+                  `New server discovered: ${discoveredServer.name} (${discoveredServer.icon})`,
+                  `Description: ${discoveredServer.description}`,
+                  `Use 'servers connect ${discoveredServer.id}' to connect.`
+                ]
+              };
+            } else {
+              return {
+                type: 'info',
+                message: [
+                  'Scan completed. No new servers found.',
+                  `Detected ${discoverableServers.length} potential servers.`,
+                  'Try increasing your hacking skill or resources.'
+                ]
+              };
+            }
+            
+          case 'secure':
+            const server = state.servers.find(s => s.id === state.currentServerId);
+            
+            if (!server) {
+              return { type: 'error', message: ['Current server not found'] };
+            }
+            
+            if (server.securityLevel <= 0) {
+              return { type: 'info', message: [`${server.name} is already fully secured.`] };
+            }
+            
+            // Cost is based on server difficulty and current security level
+            const dataCost = 100 * server.difficulty * Math.ceil(server.securityLevel);
+            const processingCost = 10 * server.difficulty;
+            
+            if (state.data < dataCost || state.processingPower < processingCost) {
+              return { 
+                type: 'error', 
+                message: [
+                  `Not enough resources to secure this server.`,
+                  `Required: ${dataCost} data and ${processingCost} processing power.`
+                ] 
+              };
+            }
+            
+            // Update server security
+            const securityReduction = 1 + (state.hackingSkill / 20); // Base 1 plus bonus from hacking skill
+            
+            dispatch({ 
+              type: 'UPDATE_SERVER_SECURITY', 
+              payload: { 
+                serverId: server.id, 
+                amount: -securityReduction 
+              } 
+            });
+            
+            // Deduct costs
+            dispatch({
+              type: 'MANUAL_HACK',
+              payload: { target: 'secure' }
+            });
+            
+            return {
+              type: 'success',
+              message: [
+                `Security measures implemented on ${server.name}.`,
+                `Security level reduced by ${securityReduction.toFixed(1)} points.`,
+                `New security level: ${Math.max(0, server.securityLevel - securityReduction).toFixed(1)}/${server.maxSecurityLevel}`,
+                `Resources used: ${dataCost} data, ${processingCost} processing power.`
+              ]
+            };
+            
+          default:
+            return { type: 'error', message: [`Unknown server command: ${args[0]}`] };
+        }
       default:
         setDisplayedLines(prev => [...prev, `Command not recognized. Type 'help' for available commands.`]);
     }
@@ -318,6 +523,7 @@ const Terminal: React.FC<TerminalProps> = ({
         "- claim [id]: Claim an achievement reward",
         "- prestige: Reset for permanent bonuses",
         "- critical: Show critical hit stats",
+        "- server: Manage servers",
         "",
         "Type 'help [command]' for more information on a specific command."
       ]);
@@ -732,7 +938,7 @@ const Terminal: React.FC<TerminalProps> = ({
     } else if (e.key === "Tab") {
       e.preventDefault();
       // Simple tab completion for commands
-      const commands = ["help", "status", "clear", "upgrades", "resources", "buy", "hack", "bonus", "mine", "system", "stats", "achievements", "claim", "prestige", "critical"];
+      const commands = ["help", "status", "clear", "upgrades", "resources", "buy", "hack", "bonus", "mine", "system", "stats", "achievements", "claim", "prestige", "critical", "server", "servers"];
       const partial = command.toLowerCase();
       
       const matches = commands.filter(cmd => cmd.startsWith(partial));

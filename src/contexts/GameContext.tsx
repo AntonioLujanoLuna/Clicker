@@ -1,4 +1,9 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import { Mission, initialMissions } from '../data/missions';
+// @ts-ignore: Suppress error if type declarations for dynamicEvents are not found
+import { DynamicEvent, initialDynamicEvents } from '../data/dynamicEvents';
+import { generateMission } from '../utils/missionGenerator';
+import { generateDynamicEvent } from '../utils/dynamicEventGenerator';
 
 // Define types for our game state
 export interface GameState {
@@ -24,6 +29,14 @@ export interface GameState {
   hackingSkill: number;
   lastHackTime: number;
   hackCooldown: number;
+  servers: Server[];
+  currentServerId: string;
+  activeAttacks: NetworkAttack[];
+  lastAttackTime: number;
+  attackCooldown: number;
+  missions: Mission[];
+  activeMissionId: string | null;
+  dynamicEvents: DynamicEvent[];
 }
 
 export interface Upgrade {
@@ -55,6 +68,51 @@ export interface Achievement {
   };
 }
 
+export interface Server {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  difficulty: number;
+  securityLevel: number;
+  maxSecurityLevel: number;
+  isUnlocked: boolean;
+  resourceMultipliers: {
+    data: number;
+    crypto: number;
+    processingPower: number;
+  };
+  unlocksAt: {
+    hackingSkill?: number;
+    data?: number;
+    crypto?: number;
+  };
+  discoveryChance: number; // % chance to discover when hacking
+}
+
+export interface NetworkAttack {
+  id: string;
+  serverId: string;
+  name: string;
+  description: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  timeStarted: number;
+  duration: number; // in ms
+  securityImpact: number;
+  dataTheft: number; // data per second stolen
+  resourceDrain: {
+    data: number;
+    crypto: number;
+    processingPower: number;
+  };
+  resolved: boolean;
+  defense: {
+    requiredData: number;
+    requiredProcessingPower: number;
+    requiredHackingSkill: number;
+  };
+}
+
 // Action types for our reducer
 type GameAction =
   | { type: 'CLICK' }
@@ -66,7 +124,22 @@ type GameAction =
   | { type: 'PRESTIGE' }
   | { type: 'CLAIM_ACHIEVEMENT'; payload: { achievementId: string } }
   | { type: 'MANUAL_MINE' }
-  | { type: 'ACTIVATE_BONUS'; payload: { duration: number; multiplier: number } };
+  | { type: 'ACTIVATE_BONUS'; payload: { duration: number; multiplier: number } }
+  | { type: 'SWITCH_SERVER'; payload: { serverId: string } }
+  | { type: 'DISCOVER_SERVER'; payload: { serverId: string } }
+  | { type: 'UPDATE_SERVER_SECURITY'; payload: { serverId: string; amount: number } }
+  | { type: 'TRIGGER_ATTACK'; payload: { serverId: string } }
+  | { type: 'RESOLVE_ATTACK'; payload: { attackId: string } }
+  | { type: 'EXPIRE_ATTACK'; payload: { attackId: string } }
+  | { type: 'START_MISSION'; missionId: string }
+  | { type: 'UPDATE_MISSION_PROGRESS'; missionId: string; objectiveId: string; progress: number }
+  | { type: 'COMPLETE_MISSION'; missionId: string }
+  | { type: 'CLAIM_MISSION_REWARDS'; missionId: string }
+  | { type: 'UPDATE_HACKING_SKILL'; amount: number }
+  | { type: 'TRIGGER_DYNAMIC_EVENT'; event: DynamicEvent }
+  | { type: 'RESOLVE_DYNAMIC_EVENT'; eventId: string }
+  | { type: 'GENERATE_MISSION' }
+  | { type: 'BACKGROUND_CLICK' };
 
 // Initialize achievements
 const initialAchievements: Achievement[] = [
@@ -135,6 +208,108 @@ const initialAchievements: Achievement[] = [
   }
 ];
 
+// Initial servers
+const initialServers: Server[] = [
+  {
+    id: 'home_pc',
+    name: 'Home PC',
+    description: 'Your personal computer. A safe starting point.',
+    icon: '💻',
+    difficulty: 1,
+    securityLevel: 0,
+    maxSecurityLevel: 5,
+    isUnlocked: true,
+    resourceMultipliers: {
+      data: 1,
+      crypto: 1,
+      processingPower: 1
+    },
+    unlocksAt: {},
+    discoveryChance: 0
+  },
+  {
+    id: 'local_network',
+    name: 'Local Network',
+    description: 'The network in your building. More resources but some security.',
+    icon: '🌐',
+    difficulty: 2,
+    securityLevel: 1,
+    maxSecurityLevel: 10,
+    isUnlocked: false,
+    resourceMultipliers: {
+      data: 2,
+      crypto: 1.5,
+      processingPower: 1.2
+    },
+    unlocksAt: {
+      hackingSkill: 5,
+      data: 5000
+    },
+    discoveryChance: 10
+  },
+  {
+    id: 'corporate_server',
+    name: 'Corporate Server',
+    description: 'A small business server with valuable data.',
+    icon: '🏢',
+    difficulty: 3,
+    securityLevel: 3,
+    maxSecurityLevel: 15,
+    isUnlocked: false,
+    resourceMultipliers: {
+      data: 5,
+      crypto: 3,
+      processingPower: 2
+    },
+    unlocksAt: {
+      hackingSkill: 15,
+      data: 50000
+    },
+    discoveryChance: 20
+  },
+  {
+    id: 'government_database',
+    name: 'Government Database',
+    description: 'Highly secured government systems with valuable information.',
+    icon: '🏛️',
+    difficulty: 5,
+    securityLevel: 7,
+    maxSecurityLevel: 25,
+    isUnlocked: false,
+    resourceMultipliers: {
+      data: 10,
+      crypto: 7,
+      processingPower: 5
+    },
+    unlocksAt: {
+      hackingSkill: 30,
+      data: 500000
+    },
+    discoveryChance: 15
+  },
+  {
+    id: 'quantum_mainframe',
+    name: 'Quantum Mainframe',
+    description: 'State-of-the-art quantum computing facility. The ultimate challenge.',
+    icon: '⚛️',
+    difficulty: 10,
+    securityLevel: 15,
+    maxSecurityLevel: 50,
+    isUnlocked: false,
+    resourceMultipliers: {
+      data: 25,
+      crypto: 20,
+      processingPower: 15
+    },
+    unlocksAt: {
+      hackingSkill: 50,
+      data: 10000000,
+      crypto: 1000
+    },
+    discoveryChance: 5
+  }
+];
+
 // Initial game state
 const initialState: GameState = {
   data: 0,
@@ -158,6 +333,11 @@ const initialState: GameState = {
   hackingSkill: 0,
   lastHackTime: 0,
   hackCooldown: 30000, // 30 seconds cooldown for hacking
+  servers: initialServers,
+  currentServerId: 'home_pc',
+  activeAttacks: [],
+  lastAttackTime: 0,
+  attackCooldown: 60000, // 1 minute minimum between attacks
   upgrades: [
     // Original upgrades
     {
@@ -265,7 +445,10 @@ const initialState: GameState = {
       isUnlocked: false,
       visibleAtData: 1500
     }
-  ]
+  ],
+  missions: initialMissions,
+  activeMissionId: null,
+  dynamicEvents: initialDynamicEvents
 };
 
 // Helper function to check achievements
@@ -304,33 +487,165 @@ const checkAchievements = (state: GameState): GameState => {
   return { ...state, achievements: newAchievements };
 };
 
+// Generate a random network attack based on server and player stats
+const generateNetworkAttack = (serverId: string, state: GameState): NetworkAttack => {
+  const server = state.servers.find(s => s.id === serverId);
+  const baseAttackTypes = [
+    {
+      name: 'Brute Force Attack',
+      description: 'Someone is attempting to crack your passwords using brute force methods.',
+      securityImpact: 2,
+      dataTheft: 0.1,
+      resourceDrain: { data: 0.01, crypto: 0, processingPower: 0.05 },
+      defense: { requiredData: 100, requiredProcessingPower: 10, requiredHackingSkill: 5 }
+    },
+    {
+      name: 'DDoS Attack',
+      description: 'A distributed denial of service attack is overwhelming your network.',
+      securityImpact: 3,
+      dataTheft: 0,
+      resourceDrain: { data: 0, crypto: 0, processingPower: 0.2 },
+      defense: { requiredData: 200, requiredProcessingPower: 20, requiredHackingSkill: 8 }
+    },
+    {
+      name: 'Data Siphon',
+      description: 'Your data is being slowly extracted by an unknown entity.',
+      securityImpact: 1,
+      dataTheft: 0.5,
+      resourceDrain: { data: 0.05, crypto: 0.01, processingPower: 0 },
+      defense: { requiredData: 300, requiredProcessingPower: 5, requiredHackingSkill: 10 }
+    },
+    {
+      name: 'Crypto Miner',
+      description: 'Unauthorized crypto mining detected on your system.',
+      securityImpact: 1,
+      dataTheft: 0,
+      resourceDrain: { data: 0, crypto: 0.1, processingPower: 0.1 },
+      defense: { requiredData: 150, requiredProcessingPower: 15, requiredHackingSkill: 7 }
+    },
+    {
+      name: 'Rootkit Installation',
+      description: 'Something is trying to install a rootkit on your system.',
+      securityImpact: 5,
+      dataTheft: 0.2,
+      resourceDrain: { data: 0.02, crypto: 0.02, processingPower: 0.02 },
+      defense: { requiredData: 500, requiredProcessingPower: 30, requiredHackingSkill: 15 }
+    },
+    {
+      name: 'Phishing Scam',
+      description: 'A deceptive phishing scam attempts to trick you out of valuable resources.',
+      securityImpact: 2,
+      dataTheft: 0.2,
+      resourceDrain: { data: 0.02, crypto: 0.05, processingPower: 0.02 },
+      defense: { requiredData: 120, requiredProcessingPower: 12, requiredHackingSkill: 6 }
+    }
+  ];
+  
+  // Choose a random attack type
+  const attackType = baseAttackTypes[Math.floor(Math.random() * baseAttackTypes.length)];
+  
+  // Scale the attack based on server difficulty
+  const difficulty = server ? server.difficulty : 1;
+  const securityImpact = attackType.securityImpact * difficulty * 0.5;
+  const dataTheft = attackType.dataTheft * difficulty;
+  const resourceDrain = {
+    data: attackType.resourceDrain.data * difficulty,
+    crypto: attackType.resourceDrain.crypto * difficulty,
+    processingPower: attackType.resourceDrain.processingPower * difficulty
+  };
+  
+  // Scale defense requirements based on server and player progress
+  const defense = {
+    requiredData: attackType.defense.requiredData * difficulty * (1 + state.prestigeLevel * 0.5),
+    requiredProcessingPower: attackType.defense.requiredProcessingPower * difficulty * (1 + state.prestigeLevel * 0.2),
+    requiredHackingSkill: attackType.defense.requiredHackingSkill + (difficulty * 2)
+  };
+  
+  // Determine severity based on impact
+  let severity: 'low' | 'medium' | 'high' | 'critical' = 'low';
+  const impactScore = securityImpact + (dataTheft * 2) + 
+    ((resourceDrain.data + resourceDrain.crypto + resourceDrain.processingPower) * 10);
+    
+  if (impactScore > 20) severity = 'critical';
+  else if (impactScore > 10) severity = 'high';
+  else if (impactScore > 5) severity = 'medium';
+  
+  // Attack duration based on severity (2-10 minutes)
+  const durationMinutes = severity === 'low' ? 2 :
+    severity === 'medium' ? 4 :
+    severity === 'high' ? 7 : 10;
+    
+  return {
+    id: `attack_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+    serverId,
+    name: attackType.name,
+    description: attackType.description,
+    severity,
+    timeStarted: Date.now(),
+    duration: durationMinutes * 60 * 1000,
+    securityImpact,
+    dataTheft,
+    resourceDrain,
+    resolved: false,
+    defense
+  };
+};
+
 // Game reducer function
 const gameReducer = (state: GameState, action: GameAction): GameState => {
   switch (action.type) {
     case 'CLICK': {
-      // Check if bonus is active
-      const now = Date.now();
-      const bonusActive = state.bonusUntil > now;
-      let multiplier = bonusActive ? state.bonusMultiplier : 1;
+      // Get current server multiplier
+      const currentServer = state.servers.find(server => server.id === state.currentServerId) || state.servers[0];
+      const serverMultiplier = currentServer.resourceMultipliers.data;
       
-      // Apply prestige multiplier
-      multiplier *= state.prestigeMultiplier;
-      
-      // Check for critical click
+      // Calculate if this click is critical
       const isCritical = Math.random() < state.criticalChance;
-      if (isCritical) {
-        multiplier *= state.criticalMultiplier;
+      const criticalMultiplier = isCritical ? state.criticalMultiplier : 1;
+      
+      // Calculate total data from this click
+      const dataGained = state.dataPerClick * state.bonusMultiplier * state.prestigeMultiplier * serverMultiplier * criticalMultiplier;
+      
+      // Check for server security increase (more difficult servers increase security faster)
+      let updatedServers = [...state.servers];
+      if (currentServer.id !== 'home_pc') {
+        const securityIncrease = 0.01 * currentServer.difficulty;
+        updatedServers = updatedServers.map(server => {
+          if (server.id === currentServer.id) {
+            const newSecurity = Math.min(server.maxSecurityLevel, server.securityLevel + securityIncrease);
+            return { ...server, securityLevel: newSecurity };
+          }
+          return server;
+        });
       }
       
-      const newState = {
-        ...state,
-        data: state.data + (state.dataPerClick * multiplier),
-        totalClicks: state.totalClicks + 1,
-        lastTimestamp: now
-      };
+      // Check for server discovery if hacking skill is high enough
+      const randomDiscovery = Math.random() * 100;
+      const potentialNewServers = state.servers.filter(server => 
+        !server.isUnlocked && 
+        server.discoveryChance > 0 && 
+        (!server.unlocksAt.hackingSkill || state.hackingSkill >= server.unlocksAt.hackingSkill) &&
+        (!server.unlocksAt.data || state.data >= server.unlocksAt.data) &&
+        (!server.unlocksAt.crypto || state.crypto >= server.unlocksAt.crypto)
+      );
       
-      // Check achievements
-      return checkAchievements(newState);
+      let discoveredServer = null;
+      for (const server of potentialNewServers) {
+        if (randomDiscovery <= server.discoveryChance) {
+          discoveredServer = server.id;
+          updatedServers = updatedServers.map(s => 
+            s.id === server.id ? { ...s, isUnlocked: true } : s
+          );
+          break;
+        }
+      }
+      
+      return {
+        ...state,
+        data: state.data + dataGained,
+        totalClicks: state.totalClicks + 1,
+        servers: updatedServers
+      };
     }
     
     case 'CLICK_BONUS': {
@@ -443,21 +758,108 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
     }
     
     case 'UPDATE_IDLE_PROGRESS': {
-      const secondsPassed = action.timePassed / 1000;
+      const { timePassed } = action;
+      const secondsPassed = timePassed / 1000;
+      
+      // Get current server multiplier
+      const currentServer = state.servers.find(server => server.id === state.currentServerId) || state.servers[0];
+      const dataMultiplier = currentServer.resourceMultipliers.data;
+      const cryptoMultiplier = currentServer.resourceMultipliers.crypto;
+      const processingMultiplier = currentServer.resourceMultipliers.processingPower;
+      
+      // Apply security level penalty (higher security = lower efficiency)
+      const securityPenalty = Math.max(0.5, 1 - (currentServer.securityLevel / currentServer.maxSecurityLevel) * 0.5);
+      
+      // Calculate resource gains
+      const dataGained = state.dataPerSecond * secondsPassed * state.bonusMultiplier * state.prestigeMultiplier * dataMultiplier * securityPenalty;
+      const cryptoGained = state.cryptoPerSecond * secondsPassed * cryptoMultiplier * securityPenalty;
+      const processingGained = (state.upgrades
+        .filter(upgrade => upgrade.effect === 'processingMultiplier' && upgrade.level > 0)
+        .reduce((total, upgrade) => total + upgrade.effectValue * upgrade.level, 0)) * processingMultiplier * secondsPassed * securityPenalty;
+      
+      // Gradually reduce security over time (except for home PC which stays at 0)
+      let updatedServers = [...state.servers];
+      if (currentServer.id !== 'home_pc') {
+        updatedServers = updatedServers.map(server => {
+          if (server.id === currentServer.id && server.securityLevel > 0) {
+            // Security slowly decreases over time
+            const newSecurity = Math.max(0, server.securityLevel - 0.005 * secondsPassed);
+            return { ...server, securityLevel: newSecurity };
+          }
+          return server;
+        });
+      }
+      
+      // Process active attacks
+      let updatedAttacks = [...state.activeAttacks];
+      let resourceLoss = { data: 0, crypto: 0, processingPower: 0 };
+      let securityImpact: { [serverId: string]: number } = {};
+      
+      updatedAttacks = updatedAttacks.map(attack => {
+        // Skip resolved attacks
+        if (attack.resolved) return attack;
+        
+        // Check if attack has expired
+        if (Date.now() > attack.timeStarted + attack.duration) {
+          return { ...attack, resolved: true };
+        }
+        
+        // Calculate resource drain from this attack
+        resourceLoss.data += attack.resourceDrain.data * secondsPassed;
+        resourceLoss.crypto += attack.resourceDrain.crypto * secondsPassed;
+        resourceLoss.processingPower += attack.resourceDrain.processingPower * secondsPassed;
+        
+        // Apply security impact to affected server
+        if (!securityImpact[attack.serverId]) {
+          securityImpact[attack.serverId] = 0;
+        }
+        securityImpact[attack.serverId] += attack.securityImpact * (secondsPassed / 60); // Scale by minute
+        
+        return attack;
+      });
+      
+      // Update servers with security impact from attacks
+      for (const serverId in securityImpact) {
+        updatedServers = updatedServers.map(server => {
+          if (server.id === serverId) {
+            const newSecurity = Math.min(server.maxSecurityLevel, server.securityLevel + securityImpact[serverId]);
+            return { ...server, securityLevel: newSecurity };
+          }
+          return server;
+        });
+      }
+      
+      // Randomly trigger new attacks (but not too frequently)
       const now = Date.now();
+      let newAttack = null;
       
-      // Reset bonus multiplier if expired
-      const bonusMultiplier = state.bonusUntil > now ? state.bonusMultiplier : 1;
+      if (
+        now > state.lastAttackTime + state.attackCooldown && 
+        updatedAttacks.filter(a => !a.resolved).length < 3 && // Max 3 active attacks
+        Math.random() < 0.2 * Math.min(1, secondsPassed / 5) // 4% chance per second up to 20% per 5 seconds
+      ) {
+        // Choose a random unlocked server that isn't home_pc
+        const targetServers = state.servers.filter(server => 
+          server.isUnlocked && server.id !== 'home_pc'
+        );
+        
+        if (targetServers.length > 0) {
+          const targetServer = targetServers[Math.floor(Math.random() * targetServers.length)];
+          newAttack = generateNetworkAttack(targetServer.id, state);
+          updatedAttacks.push(newAttack);
+        }
+      }
       
-      const newState = {
+      return {
         ...state,
-        data: state.data + state.dataPerSecond * secondsPassed * state.prestigeMultiplier,
-        crypto: state.crypto + state.cryptoPerSecond * secondsPassed * state.prestigeMultiplier,
-        bonusMultiplier: bonusMultiplier,
-        lastTimestamp: now
+        data: Math.max(0, state.data + dataGained - resourceLoss.data),
+        crypto: Math.max(0, state.crypto + cryptoGained - resourceLoss.crypto),
+        processingPower: Math.max(0, state.processingPower + processingGained - resourceLoss.processingPower),
+        lastTimestamp: Date.now(),
+        servers: updatedServers,
+        activeAttacks: updatedAttacks,
+        lastAttackTime: newAttack ? now : state.lastAttackTime
       };
-      
-      return checkAchievements(newState);
     }
     
     case 'MANUAL_HACK': {
@@ -549,7 +951,255 @@ const gameReducer = (state: GameState, action: GameAction): GameState => {
         ...initialState,
         lastTimestamp: Date.now()
       };
+    
+    case 'SWITCH_SERVER': {
+      const { serverId } = action.payload;
+      const targetServer = state.servers.find(server => server.id === serverId);
       
+      if (!targetServer || !targetServer.isUnlocked) {
+        return state;
+      }
+      
+      return {
+        ...state,
+        currentServerId: serverId
+      };
+    }
+    
+    case 'DISCOVER_SERVER': {
+      const { serverId } = action.payload;
+      const updatedServers = state.servers.map(server => 
+        server.id === serverId ? { ...server, isUnlocked: true } : server
+      );
+      
+      return {
+        ...state,
+        servers: updatedServers
+      };
+    }
+    
+    case 'UPDATE_SERVER_SECURITY': {
+      const { serverId, amount } = action.payload;
+      const updatedServers = state.servers.map(server => {
+        if (server.id === serverId) {
+          const newSecurity = Math.max(0, Math.min(server.maxSecurityLevel, server.securityLevel + amount));
+          return { ...server, securityLevel: newSecurity };
+        }
+        return server;
+      });
+      
+      return {
+        ...state,
+        servers: updatedServers
+      };
+    }
+    
+    case 'TRIGGER_ATTACK': {
+      const { serverId } = action.payload;
+      const server = state.servers.find(s => s.id === serverId);
+      
+      if (!server || !server.isUnlocked) {
+        return state;
+      }
+      
+      const newAttack = generateNetworkAttack(serverId, state);
+      
+      return {
+        ...state,
+        activeAttacks: [...state.activeAttacks, newAttack],
+        lastAttackTime: Date.now()
+      };
+    }
+    
+    case 'RESOLVE_ATTACK': {
+      const { attackId } = action.payload;
+      const attack = state.activeAttacks.find(a => a.id === attackId);
+      
+      if (!attack || attack.resolved) {
+        return state;
+      }
+      
+      // Check if player has resources to defend
+      if (
+        state.data < attack.defense.requiredData ||
+        state.processingPower < attack.defense.requiredProcessingPower ||
+        state.hackingSkill < attack.defense.requiredHackingSkill
+      ) {
+        return state;
+      }
+      
+      // Consume resources
+      const updatedAttacks = state.activeAttacks.map(a => 
+        a.id === attackId ? { ...a, resolved: true } : a
+      );
+      
+      return {
+        ...state,
+        data: state.data - attack.defense.requiredData,
+        processingPower: state.processingPower - attack.defense.requiredProcessingPower,
+        activeAttacks: updatedAttacks
+      };
+    }
+    
+    case 'EXPIRE_ATTACK': {
+      const { attackId } = action.payload;
+      
+      const updatedAttacks = state.activeAttacks.map(a => 
+        a.id === attackId ? { ...a, resolved: true } : a
+      );
+      
+      return {
+        ...state,
+        activeAttacks: updatedAttacks
+      };
+    }
+    
+    case 'START_MISSION': {
+      return {
+        ...state,
+        missions: state.missions.map(mission =>
+          mission.id === action.missionId
+            ? { ...mission, status: 'active' }
+            : mission
+        ),
+        activeMissionId: action.missionId
+      };
+    }
+    
+    case 'UPDATE_MISSION_PROGRESS': {
+      return {
+        ...state,
+        missions: state.missions.map(mission =>
+          mission.id === action.missionId
+            ? {
+                ...mission,
+                objectives: mission.objectives.map(objective =>
+                  objective.id === action.objectiveId
+                    ? {
+                        ...objective,
+                        progress: action.progress,
+                        completed: action.progress >= (typeof objective.target === 'number' ? objective.target : 1)
+                      }
+                    : objective
+                )
+              }
+            : mission
+        )
+      };
+    }
+    
+    case 'COMPLETE_MISSION': {
+      return {
+        ...state,
+        missions: state.missions.map(mission =>
+          mission.id === action.missionId
+            ? { ...mission, status: 'completed' }
+            : mission
+        ),
+        activeMissionId: null
+      };
+    }
+    
+    case 'CLAIM_MISSION_REWARDS': {
+      const mission = state.missions.find(m => m.id === action.missionId);
+      if (!mission) return state;
+
+      let newState = { ...state };
+      
+      mission.rewards.forEach(reward => {
+        switch (reward.type) {
+          case 'data':
+            newState.data += reward.amount;
+            break;
+          case 'crypto':
+            newState.crypto += reward.amount;
+            break;
+          case 'processing_power':
+            newState.processingPower += reward.amount;
+            break;
+          case 'hacking_skill':
+            newState.hackingSkill += reward.amount;
+            break;
+          // Handle other reward types as needed
+        }
+      });
+
+      return newState;
+    }
+    
+    case 'UPDATE_HACKING_SKILL': {
+      return {
+        ...state,
+        hackingSkill: state.hackingSkill + action.amount
+      };
+    }
+    
+    case 'TRIGGER_DYNAMIC_EVENT': {
+      return {
+        ...state,
+        dynamicEvents: [...state.dynamicEvents, action.event]
+      };
+    }
+    
+    case 'RESOLVE_DYNAMIC_EVENT': {
+      const eventToResolve = state.dynamicEvents.find(e => e.id === action.eventId);
+      if (!eventToResolve || eventToResolve.resolved) return state;
+
+      let newState = { ...state };
+
+      // Apply reward if defined
+      if (eventToResolve.reward) {
+        switch (eventToResolve.reward.type) {
+          case 'data':
+            newState.data += eventToResolve.reward.amount;
+            break;
+          case 'crypto':
+            newState.crypto += eventToResolve.reward.amount;
+            break;
+          case 'processing_power':
+            newState.processingPower += eventToResolve.reward.amount;
+            break;
+          case 'hacking_skill':
+            newState.hackingSkill += eventToResolve.reward.amount;
+            break;
+          // Add more cases if needed
+        }
+      }
+      
+      return {
+        ...newState,
+        dynamicEvents: state.dynamicEvents.map(event =>
+          event.id === action.eventId ? { ...event, resolved: true } : event
+        )
+      };
+    }
+    
+    case 'GENERATE_MISSION': {
+      const newMission = generateMission(state);
+      return {
+        ...state,
+        missions: [...state.missions, newMission]
+      };
+    }
+    
+    case 'BACKGROUND_CLICK': {
+      // Get current server multiplier
+      const currentServer = state.servers.find(server => server.id === state.currentServerId) || state.servers[0];
+      const serverMultiplier = currentServer.resourceMultipliers.data;
+
+      // Background clicks yield 50% of a normal click's data
+      const rewardFactor = 0.5;
+      const dataGained = state.dataPerClick * rewardFactor * state.bonusMultiplier * state.prestigeMultiplier * serverMultiplier;
+
+      // Optionally, you could add visual effects or additional bonuses here
+      return {
+        ...state,
+        data: state.data + dataGained,
+        totalClicks: state.totalClicks + 1,
+        lastTimestamp: Date.now()
+      };
+    }
+    
     default:
       return state;
   }
@@ -609,6 +1259,18 @@ export const GameProvider: React.FC<GameProviderProps> = ({ children }) => {
       }
     }
   }, []);
+  
+  // Trigger random dynamic events
+  useEffect(() => {
+    const eventInterval = setInterval(() => {
+      // If there are no unresolved dynamic events, and with a 1% chance per second, trigger a new dynamic event
+      if (state.dynamicEvents.filter(e => !e.resolved).length < 1 && Math.random() < 0.01) {
+        const newEvent = generateDynamicEvent(state);
+        dispatch({ type: 'TRIGGER_DYNAMIC_EVENT', event: newEvent });
+      }
+    }, 1000);
+    return () => clearInterval(eventInterval);
+  }, [state.dynamicEvents, dispatch]);
   
   return (
     <GameContext.Provider value={{ state, dispatch }}>

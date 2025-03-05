@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import styled, { createGlobalStyle, keyframes } from 'styled-components';
-import { GameProvider, useGame } from './contexts/GameContext';
+import { GameProvider, useGame, GameState } from './contexts/GameContext';
+import { MissionProvider } from './contexts/MissionContext';
 import DigitalRain from './components/DigitalRain';
 import Terminal from './components/Terminal';
 import ResourceDisplay from './components/ResourceDisplay';
 import UpgradePanel from './components/UpgradePanel';
+import ServerPanel from './components/ServerPanel';
+import NetworkAttackPanel from './components/NetworkAttackPanel';
+import { MissionPanel } from './components/MissionPanel';
 
 const GlobalStyle = createGlobalStyle`
   * {
@@ -198,174 +202,118 @@ const TipText = styled.p`
   opacity: 0.8;
 `;
 
+const ToggleButton = styled.button`
+  background-color: rgba(0, 30, 0, 0.8);
+  border: 1px solid #0F0;
+  color: #0F0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  padding: 0.5rem 1.5rem;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.2s;
+  
+  &:hover {
+    background-color: rgba(0, 50, 0, 0.8);
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
+  }
+  
+  &:active {
+    transform: scale(0.98);
+  }
+`;
+
 // Game info component that shows tips based on game state
 const GameInfo: React.FC = () => {
-  const { state } = useGame();
+  const gameContext = useGame();
   const [notifications, setNotifications] = useState<string[]>([]);
   const [showHelp, setShowHelp] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
-  
-  // Define tips outside of any effects to avoid dependency issues
+  const [notifiedAchievementIds, setNotifiedAchievementIds] = useState<string[]>([]);
+
+  // Tips array
   const tips = [
-    "Use your keyboard to collect data faster - any key works!",
-    "Type 'help' in the terminal to see available commands",
-    "Critical hits give you bonus data - upgrade your critical chance!",
-    "Watch for white characters in the digital rain - they give big bonuses!",
-    "Use the 'hack' command in the terminal to attempt system intrusions",
-    "Unlocking achievements provides permanent bonuses",
-    "Type 'achievements' in the terminal to see your progress",
-    "Prestige resets your progress but gives permanent multipliers",
-    "Higher processing power makes all operations more efficient",
-    "Use the 'mine' command in the terminal to mine crypto instantly"
+    "Press any key or click to collect data",
+    "Buy upgrades to increase your production",
+    "Complete missions to earn rewards",
+    "Manage your servers for optimal resource generation",
+    "Watch for network attacks and defend your systems"
   ];
-  
-  // Achievement notifications
+
   useEffect(() => {
-    const unlockedAchievements = state.achievements.filter(a => a.unlocked);
-    
-    if (unlockedAchievements.length > 0) {
-      // Check for newly unlocked achievements
-      const newNotifications: string[] = [];
-      
-      for (const achievement of unlockedAchievements) {
-        // Simple approach - just show notifications for all unlocked achievements
-        // In a production app, you'd want to track which ones were already shown
-        newNotifications.push(`Achievement unlocked: ${achievement.name}`);
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (e.key === 'h' || e.key === 'H') {
+        setShowHelp(prev => !prev);
+        setTipIndex(prev => (prev + 1) % tips.length);
       }
-      
-      if (newNotifications.length > 0) {
-        setNotifications(prev => [...newNotifications, ...prev].slice(0, 5));
-        
-        // Auto-remove notifications after a few seconds
-        setTimeout(() => {
-          setNotifications(prev => prev.slice(0, prev.length - newNotifications.length));
-        }, 5000);
-      }
-    }
-  }, [state.achievements]);
-  
-  // Show help after a delay for new players
-  useEffect(() => {
-    if (state.totalClicks < 10) {
-      const timer = setTimeout(() => {
-        setShowHelp(true);
-      }, 10000);
-      
-      return () => clearTimeout(timer);
-    } else {
-      setShowHelp(false);
-    }
-  }, [state.totalClicks]);
-  
-  // Rotate through tips
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTipIndex(prev => (prev + 1) % tips.length);
-    }, 15000);
-    
-    return () => clearInterval(timer);
-  }, [tips.length]);
-  
+    };
+
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
+
   return (
     <>
+      <InfoBar>
+        <span>Status: Connected</span>
+        <span>
+          {gameContext.state.criticalChance > 0.01 && `Crit: ${(gameContext.state.criticalChance * 100).toFixed(1)}% | `}
+          {gameContext.state.prestigeLevel > 0 && `Prestige: ${gameContext.state.prestigeLevel} | `}
+          Version: 1.1.0
+        </span>
+      </InfoBar>
+
+      {showHelp && (
+        <HelpTooltip>
+          <h3>Game Tips</h3>
+          <p>{tips[tipIndex]}</p>
+          <TipText>Press H to toggle help</TipText>
+        </HelpTooltip>
+      )}
+
       <NotificationContainer>
         {notifications.map((text, index) => (
           <Notification key={index}>{text}</Notification>
         ))}
       </NotificationContainer>
-      
-      {showHelp && (
-        <HelpTooltip>
-          <strong>Welcome to Digital Matrix!</strong>
-          <FeatureList>
-            <FeatureItem>Click or press any key to collect data</FeatureItem>
-            <FeatureItem>Buy upgrades to increase your production</FeatureItem>
-            <FeatureItem>Use terminal commands to access special features</FeatureItem>
-            <FeatureItem>Watch for special characters in the falling matrix</FeatureItem>
-            <FeatureItem>Unlock achievements for permanent bonuses</FeatureItem>
-          </FeatureList>
-          <TipText>{tips[tipIndex]}</TipText>
-        </HelpTooltip>
-      )}
-      
-      <InfoBar>
-        <span>Status: Connected</span>
-        <span>
-          {state.criticalChance > 0.01 && `Crit: ${(state.criticalChance * 100).toFixed(1)}% | `}
-          {state.prestigeLevel > 0 && `Prestige: ${state.prestigeLevel} | `}
-          Version: 1.1.0
-        </span>
-      </InfoBar>
     </>
   );
 };
 
-const AppContent: React.FC = () => {
-  const [clickEffect, setClickEffect] = useState(false);
-  const { state } = useGame();
-
-  const handleClick = () => {
-    setClickEffect(true);
-    // Reset after animation completes
-    setTimeout(() => {
-      setClickEffect(false);
-    }, 1000);
-  };
-
-  return (
-    <>
-      <GlobalStyle />
-      <DigitalRain intensity={clickEffect ? 2 : 1} />
-      
-      <Layout>
-        <MainContent>
-          <Header>
-            <Title>Digital Matrix</Title>
-            <Subtitle>Hack the system, decode reality</Subtitle>
-            
-            <Terminal 
-              title="TERMINAL"
-              lines={[
-                "Initialize system connection...",
-                "Bypassing security protocols...",
-                "Access granted.",
-                "Welcome to the Matrix. Begin data extraction.",
-                "Type 'help' for available commands."
-              ]}
-            />
-          </Header>
-          
-          <GameContainer>
-            <ResourceDisplay onClickTrigger={handleClick} />
-          </GameContainer>
-          
-          <Footer>
-            &copy; {new Date().getFullYear()} Digital Matrix - A Matrix-inspired Hacking Clicker Game
-            {state.prestigeLevel > 0 && (
-              <div style={{ marginTop: '5px' }}>
-                Prestige Level: {state.prestigeLevel} | Multiplier: {state.prestigeMultiplier.toFixed(2)}x
-              </div>
-            )}
-          </Footer>
-        </MainContent>
-        
-        <SidePanel>
-          <SidePanelHeader>Upgrades</SidePanelHeader>
-          <UpgradePanel />
-        </SidePanel>
-      </Layout>
-      
-      <GameInfo />
-    </>
-  );
-};
-
-const App: React.FC = () => {
+function App() {
   return (
     <GameProvider>
-      <AppContent />
+      <MissionProvider>
+        <GlobalStyle />
+        <DigitalRain />
+        <Layout>
+          <MainContent>
+            <Header>
+              <Title>Cyber Clicker</Title>
+              <Subtitle>Hack the System, Collect the Data</Subtitle>
+            </Header>
+            <GameContainer>
+              <Terminal />
+              <ResourceDisplay />
+              <NetworkAttackPanel />
+            </GameContainer>
+            <Footer>
+              <p>&copy; 2024 Cyber Clicker - All rights reserved</p>
+            </Footer>
+          </MainContent>
+          <SidePanel>
+            <SidePanelHeader>Control Panel</SidePanelHeader>
+            <UpgradePanel />
+            <ServerPanel />
+            <MissionPanel />
+          </SidePanel>
+        </Layout>
+        <GameInfo />
+      </MissionProvider>
     </GameProvider>
   );
-};
+}
 
 export default App;
